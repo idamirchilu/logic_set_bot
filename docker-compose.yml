@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/logic_bot
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - logic-network
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: logic_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.py:/docker-entrypoint-initdb.d/init_db.py
+    networks:
+      - logic-network
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@logicbot.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - logic-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  logic-network:
+    driver: bridge
