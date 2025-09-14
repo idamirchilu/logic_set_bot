@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 def latex_to_image(latex_str: str):
     """Convert LaTeX string to an image"""
     try:
-        plt.rcParams['text.usetex'] = True
-        plt.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
+        # Use Matplotlib mathtext (faster, no external TeX needed)
+        plt.rcParams['text.usetex'] = False
 
         fig, ax = plt.subplots(figsize=(8, 3))
         ax.text(0.5, 0.5, f'${latex_str}$', fontsize=16,

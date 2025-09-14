@@ -1,6 +1,7 @@
 python-telegram-bot==20.7
 sympy==1.12
 aiohttp==3.9.1  # For Ollama API calls
+aiohttp==3.9.1
 matplotlib==3.8.2
 pillow==10.1.0
 aiosqlite==0.19.0  # Async SQLite driver

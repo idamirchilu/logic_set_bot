@@ -5,6 +5,7 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
 
 from app.bot.states import *
+import asyncio
 
 # Additional states
 CONFIRMING_EXIT = 'CONFIRMING_EXIT'
@@ -13,7 +14,7 @@ from app.database import db_manager
 from app.services.parser import LogicSetParser
 from app.services.exercise_generator import ExerciseGenerator
 from app.services.scoring import ScoringSystem
-from app.services.ollama_service import ollama_service
+from app.services.llm_service import llm_service
 from app.utils import latex_to_image, hash_query, format_progress_message
 
 logger = logging.getLogger(__name__)
@@ -240,8 +241,8 @@ async def handle_exercise_selection(update: Update, context: ContextTypes.DEFAUL
         logger.error(f"Error getting user progress: {e}")
         difficulty = 1
 
-    # Generate exercise
-    exercise = exercise_generator.generate_exercise(exercise_type, difficulty)
+    # Generate exercise (offload to thread)
+    exercise = await asyncio.to_thread(exercise_generator.generate_exercise, exercise_type, difficulty)
     # Delete loading message
     await loading_message.delete()
 
@@ -264,35 +265,35 @@ async def handle_logic_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("به منوی اصلی بازگشتید.", reply_markup=get_main_menu_keyboard())
         return MAIN_MENU
 
-    # Log the question
+    # Log the question asynchronously (don't await)
     try:
-        await db_manager.log_question(user_id, user_text, "logic")
+        asyncio.create_task(db_manager.log_question(user_id, user_text, "logic"))
     except Exception as e:
-        logger.error(f"Error logging question: {e}")
+        logger.error(f"Error scheduling question log: {e}")
 
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
 
     try:
-        # Try to parse and simplify the expression
-        expr, variables = parser.parse_logic_expression(user_text)
-        simplified = parser.simplify_logic(expr)
+        # Offload parsing and simplification to thread pool
+        expr, variables = await asyncio.to_thread(parser.parse_logic_expression, user_text)
+        simplified = await asyncio.to_thread(parser.simplify_logic, expr)
 
         response = f"عبارت ساده شده: {simplified}"
         # Delete loading message
         await loading_message.delete()
         await update.message.reply_text(response)
 
-        # Send as image if it's a complex expression
+        # Send as image if it's a complex expression (render in thread)
         from sympy import latex
-        img_buffer = latex_to_image(latex(simplified))
+        img_buffer = await asyncio.to_thread(latex_to_image, latex(simplified))
         if img_buffer:
             await update.message.reply_photo(photo=img_buffer, caption="نمایش فرمول")
 
     except ValueError as e:
         # If parsing fails, use Ollama for help
         try:
-            response = await ollama_service.get_response(user_text)
+            response = await llm_service.get_response(user_text)
             await update.message.reply_text(response)
         except Exception as e:
             logger.error(f"Error getting Ollama response: {e}")
@@ -310,18 +311,18 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("به منوی اصلی بازگشتید.", reply_markup=get_main_menu_keyboard())
         return MAIN_MENU
 
-    # Log the question
+    # Log the question asynchronously
     try:
-        await db_manager.log_question(user_id, user_text, "set_theory")
+        asyncio.create_task(db_manager.log_question(user_id, user_text, "set_theory"))
     except Exception as e:
-        logger.error(f"Error logging question: {e}")
+        logger.error(f"Error scheduling question log: {e}")
 
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
 
     try:
-        # Try to parse and evaluate the expression
-        result = parser.parse_set_expression(user_text)
+        # Offload parsing to thread because it may use eval and be CPU-bound
+        result = await asyncio.to_thread(parser.parse_set_expression, user_text)
         response = f"نتیجه: {result}"
         # Delete loading message
         await loading_message.delete()
@@ -330,7 +331,7 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError as e:
         # If parsing fails, use Ollama for help
         try:
-            response = await ollama_service.get_response(user_text)
+            response = await llm_service.get_response(user_text)
             await update.message.reply_text(response)
         except Exception as e:
             logger.error(f"Error getting Ollama response: {e}")
@@ -399,7 +400,7 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
     loading_message = await update.message.reply_text("در حال پردازش سوال شما... ⏳")
 
     # Use Ollama for all general questions
-    response = await ollama_service.get_response(text)
+    response = await llm_service.get_response(text)
     # Delete loading message
     await loading_message.delete()
 

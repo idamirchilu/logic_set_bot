@@ -89,11 +89,7 @@ Create a `.env` file with:
 # Required
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 
-# Ollama (optional)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
-OLLAMA_MAX_TOKENS=800
-OLLAMA_TEMPERATURE=0.3
+# No Ollama configuration required
 
 # Database (SQLite)
 DATABASE_URL=sqlite+aiosqlite:///./logic_bot.db
@@ -226,10 +222,9 @@ logic_set_bot/
    - Check file permissions
    - Verify database file exists
 
-3. **Ollama not working**
-   - Check if Ollama is running: `curl http://localhost:11434/api/tags`
-   - Verify model is pulled: `ollama list`
-   - Bot will use fallback responses if Ollama is unavailable
+3. **LLM not working**
+   - Check your internet connection
+   - Bot will use fallback responses if LLM is unavailable
 
 ### Logs
 
