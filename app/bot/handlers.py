@@ -1,9 +1,13 @@
 import logging
 import random
-from telegram import Update
+from datetime import datetime, timedelta
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
 
 from app.bot.states import *
+
+# Additional states
+CONFIRMING_EXIT = 'CONFIRMING_EXIT'
 from app.bot.keyboards import get_main_menu_keyboard, get_back_keyboard, get_exercise_keyboard
 from app.database import db_manager
 from app.services.parser import LogicSetParser
@@ -22,6 +26,11 @@ scoring_system = ScoringSystem(db_manager)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the conversation and show the main menu"""
     user = update.effective_user
+    
+    # Initialize user session data
+    context.user_data['last_activity'] = datetime.now()
+    context.user_data['menu_attempts'] = 0
+    context.user_data['current_session'] = True
     
     try:
         success = await db_manager.add_user(user.id, user.username, user.first_name, user.last_name)
@@ -49,6 +58,35 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
+    # Session management
+    now = datetime.now()
+    last_activity = context.user_data.get('last_activity')
+    
+    # Check for session timeout (30 minutes)
+    if last_activity and (now - last_activity) > timedelta(minutes=30):
+        await update.message.reply_text(
+            "جلسه شما به دلیل عدم فعالیت منقضی شده است. لطفاً دوباره شروع کنید.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        context.user_data.clear()
+        context.user_data['last_activity'] = now
+        return MAIN_MENU
+    
+    # Update last activity
+    context.user_data['last_activity'] = now
+    
+    # Anti-spam: Check menu attempts
+    menu_attempts = context.user_data.get('menu_attempts', 0)
+    if menu_attempts > 10:  # Reset after 10 rapid menu changes
+        context.user_data['menu_attempts'] = 0
+        await update.message.reply_text(
+            "لطفاً کمی صبر کنید و سپس دوباره تلاش کنید.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return MAIN_MENU
+    
+    context.user_data['menu_attempts'] = menu_attempts + 1
+    
     # Update user interaction
     try:
         await db_manager.update_user_interaction(user_id)
@@ -56,75 +94,98 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error updating user interaction: {e}")
         # Continue anyway to not break the user experience
 
-    if text == '🧠 کمک در منطق':
-        await update.message.reply_text(
-            "لطفاً عبارت منطقی یا سوال خود را وارد کنید.\n\n"
-            "مثال‌ها:\n"
-            "• ساده کن (p ∧ q) ∨ (p ∧ ¬q)\n"
-            "• جدول درستی برای p → q ایجاد کن\n"
-            "• آیا (p ∨ q) ∧ ¬p معادل q است؟",
-            reply_markup=get_back_keyboard()
-        )
-        return LOGIC_INPUT
+    # Define menu options and their handlers
+    menu_options = {
+        '🧠 کمک در منطق': {
+            'message': "لطفاً عبارت منطقی یا سوال خود را وارد کنید.\n\n"
+                      "مثال‌ها:\n"
+                      "• ساده کن (p ∧ q) ∨ (p ∧ ¬q)\n"
+                      "• جدول درستی برای p → q ایجاد کن\n"
+                      "• آیا (p ∨ q) ∧ ¬p معادل q است؟\n\n"
+                      "💡 راهنمایی: می‌توانید از علائم ∧ (and)، ∨ (or)، ¬ (not)، → (implies) استفاده کنید.",
+            'next_state': LOGIC_INPUT,
+            'help_tip': "برای خروج از این بخش، روی دکمه 'بازگشت به منو' کلیک کنید."
+        },
+        '📚 کمک در نظریه مجموعه‌ها': {
+            'message': "لطفاً عبارت نظریه مجموعه‌ها یا سوال خود را وارد کنید.\n\n"
+                      "مثال‌ها:\n"
+                      "• محاسبه کن A ∪ B که A = {1,2,3}, B = {3,4,5}\n"
+                      "• آیا A زیرمجموعه B است؟\n"
+                      "• مجموعه توانی {1,2} چیست؟",
+            'next_state': SET_INPUT,
+            'help_tip': "برای نمایش مجموعه‌ها از کاراکترهای {} استفاده کنید."
+        },
+        '📝 ایجاد تمرین': {
+            'handler': generate_exercise_menu,
+            'next_state': EXERCISE_SELECTION
+        },
+        '📊 پیشرفت من': {
+            'handler': lambda u, c: show_progress(u, u.effective_user.id),
+            'next_state': MAIN_MENU
+        },
+        'ℹ️ درباره بات': {
+            'message': "🤖 ربات منطق و نظریه مجموعه‌ها\n\n"
+                      "این دستیار هوشمند به دانشجویان در یادگیری و تمرین کمک می‌کند:\n"
+                      "• منطق گزاره‌ای\n"
+                      "• جبر بولی\n"
+                      "• عملیات نظریه مجموعه‌ها\n"
+                      "• استدلال ریاضی\n\n"
+                      "ساخته شده با پایتون، SymPy و Ollama",
+            'next_state': MAIN_MENU
+        },
+        '❓ راهنما': {
+            'message': "💡 نحوه استفاده از ربات:\n\n"
+                      "1. از منو برای انتخاب دسته مورد نظر استفاده کنید\n"
+                      "2. سوال یا عبارت خود را تایپ کنید\n"
+                      "3. کمک و توضیحات فوری دریافت کنید\n\n"
+                      "همچنین می‌توانید مستقیماً تایپ کنید:\n"
+                      "• 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'\n"
+                      "• 'محاسبه کن A ∪ B که A={1,2}, B={2,3}'\n"
+                      "• 'ایجاد تمرین منطق'\n"
+                      "• 'قوانین دمورگان را توضیح بده'",
+            'next_state': MAIN_MENU
+        }
+    }
 
-    elif text == '📚 کمک در نظریه مجموعه‌ها':
-        await update.message.reply_text(
-            "لطفاً عبارت نظریه مجموعه‌ها یا سوال خود را وارد کنید.\n\n"
-            "مثال‌ها:\n"
-            "• محاسبه کن A ∪ B که A = {1,2,3}, B = {3,4,5}\n"
-            "• آیا A زیرمجموعه B است؟\n"
-            "• مجموعه توانی {1,2} چیست؟",
-            reply_markup=get_back_keyboard()
-        )
-        return SET_INPUT
-
-    elif text == '📝 ایجاد تمرین':
-        await generate_exercise_menu(update, context)
-        return EXERCISE_SELECTION
-
-    elif text == '📊 پیشرفت من':
+    # Handle menu selection
+    if text in menu_options:
+        option = menu_options[text]
+        
         try:
-            progress = await db_manager.get_user_progress(user_id)
-            if progress:
-                message = format_progress_message(progress)
-                await update.message.reply_text(message)
+            if 'handler' in option:
+                # For options with custom handlers
+                await option['handler'](update, context)
             else:
-                await update.message.reply_text("هنوز اطلاعات پیشرفتی موجود نیست.")
+                # For options with simple messages
+                await update.message.reply_text(
+                    option['message'],
+                    reply_markup=get_back_keyboard()
+                )
+                
+                # Send help tip if available
+                if 'help_tip' in option:
+                    await update.message.reply_text(
+                        f"💡 {option['help_tip']}",
+                        reply_markup=get_back_keyboard()
+                    )
+            
+            # Reset menu attempts when successfully entering a section
+            context.user_data['menu_attempts'] = 0
+            return option['next_state']
+            
         except Exception as e:
-            logger.error(f"Error getting user progress: {e}")
-            await update.message.reply_text("خطا در دریافت اطلاعات پیشرفت.")
-        return MAIN_MENU
-
-    elif text == 'ℹ️ درباره بات':
-        about_text = (
-            "🤖 ربات منطق و نظریه مجموعه‌ها\n\n"
-            "این دستیار هوشمند به دانشجویان در یادگیری و تمرین کمک می‌کند:\n"
-            "• منطق گزاره‌ای\n"
-            "• جبر بولی\n"
-            "• عملیات نظریه مجموعه‌ها\n"
-            "• استدلال ریاضی\n\n"
-            "ساخته شده با پایتون، SymPy و Ollama"
+            logger.error(f"Error handling menu option {text}: {e}")
+            await update.message.reply_text(
+                "متأسفانه در پردازش درخواست شما مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return MAIN_MENU
+    
+    elif text in ['🔙 بازگشت', '🔙 بازگشت به منو']:
+        await update.message.reply_text(
+            "به منوی اصلی بازگشتید.", 
+            reply_markup=get_main_menu_keyboard()
         )
-        await update.message.reply_text(about_text)
-        return MAIN_MENU
-
-    elif text == '❓ راهنما':
-        help_text = (
-            "💡 نحوه استفاده ازこの ربات:\n\n"
-            "1. از منو برای انتخاب دسته مورد نظر استفاده کنید\n"
-            "2. سوال یا عبارت خود را تایپ کنید\n"
-            "3. کمک و توضیحات فوری دریافت کنید\n\n"
-            "همچنین می‌توانید مستقیماً تایپ کنید:\n"
-            "• 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'\n"
-            "• 'محاسبه کن A ∪ B که A={1,2}, B={2,3}'\n"
-            "• 'ایجاد تمرین منطق'\n"
-            "• 'قوانین دمورگان را توضیح بده'"
-        )
-        await update.message.reply_text(help_text)
-        return MAIN_MENU
-
-    elif text in ['🔙 بازگشت', '🔙 بازگشت به منوی اصلی']:
-        await update.message.reply_text("به منوی اصلی بازگشتید.", reply_markup=get_main_menu_keyboard())
         return MAIN_MENU
 
     else:
@@ -144,17 +205,29 @@ async def handle_exercise_selection(update: Update, context: ContextTypes.DEFAUL
     text = update.message.text
     user_id = update.effective_user.id
 
-    if text == '🔙 بازگشت':
-        await update.message.reply_text("به منوی اصلی بازگشتید.", reply_markup=get_main_menu_keyboard())
+    if text == '🔙 بازگشت به منو':
+        await update.message.reply_text(
+            "به منوی اصلی بازگشتید.", 
+            reply_markup=get_main_menu_keyboard()
+        )
         return MAIN_MENU
 
-    # Determine exercise type
-    if text == '🧠 تمرین منطق':
-        exercise_type = "logic"
-    elif text == '📚 تمرین نظریه مجموعه‌ها':
-        exercise_type = "set_theory"
-    else:  # Random Exercise
-        exercise_type = random.choice(["logic", "set_theory"])
+    # Define valid exercise types
+    EXERCISE_TYPES = {
+        '🧠 تمرین منطق': 'logic',
+        '📚 تمرین نظریه مجموعه‌ها': 'set_theory',
+        '🎲 تمرین تصادفی': random.choice(['logic', 'set_theory'])
+    }
+
+    # Validate exercise type
+    if text not in EXERCISE_TYPES:
+        await update.message.reply_text(
+            "لطفاً یکی از گزینه‌های موجود را انتخاب کنید.",
+            reply_markup=get_exercise_keyboard()
+        )
+        return EXERCISE_SELECTION
+
+    exercise_type = EXERCISE_TYPES[text]
 
     # Send loading message
     loading_message = await update.message.reply_text("در حال آماده‌سازی تمرین... ⏳")
@@ -265,33 +338,6 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
     return MAIN_MENU
-    """Handle set theory expressions from the user"""
-    user_text = update.message.text
-    user_id = update.effective_user.id
-
-    if user_text == '🔙 بازگشت به منوی اصلی':
-        await update.message.reply_text("به منوی اصلی بازگشتید.", reply_markup=get_main_menu_keyboard())
-        return MAIN_MENU
-
-    # Log the question
-    try:
-        await db_manager.log_question(user_id, user_text, "set_theory")
-    except Exception as e:
-        logger.error(f"Error logging question: {e}")
-
-    try:
-        # Try to parse and evaluate the expression
-        result = parser.parse_set_expression(user_text)
-        response = f"نتیجه: {result}"
-        await update.message.reply_text(response)
-
-    except ValueError as e:
-        # If parsing fails, use Ollama for help
-        response = await ollama_service.get_response(user_text)
-        await update.message.reply_text(response)
-
-    await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
-    return MAIN_MENU
 
 async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check the user's answer to an exercise"""
@@ -366,13 +412,52 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(response)
     return MAIN_MENU
 
+async def show_progress(update: Update, user_id: int):
+    """Show user progress"""
+    try:
+        progress = await db_manager.get_user_progress(user_id)
+        if progress:
+            message = format_progress_message(progress)
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text(
+                "هنوز اطلاعات پیشرفتی موجود نیست.",
+                reply_markup=get_main_menu_keyboard()
+            )
+    except Exception as e:
+        logger.error(f"Error getting user progress: {e}")
+        await update.message.reply_text(
+            "خطا در دریافت اطلاعات پیشرفت.",
+            reply_markup=get_main_menu_keyboard()
+        )
+
+async def confirm_exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for confirmation before exiting"""
+    keyboard = [
+        ['✅ بله، خروج', '❌ خیر، ادامه']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "آیا مطمئن هستید که می‌خواهید از ربات خارج شوید؟",
+        reply_markup=reply_markup
+    )
+    return CONFIRMING_EXIT
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel the conversation"""
-    await update.message.reply_text(
-        "خدانگهدار! امیدوارم روزی دوباره بتوانیم صحبت کنیم.",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return ConversationHandler.END
+    if update.message.text == '✅ بله، خروج':
+        await update.message.reply_text(
+            "خدانگهدار! امیدوارم روزی دوباره بتوانیم صحبت کنیم.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text(
+            "به منوی اصلی بازگشتید.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return MAIN_MENU
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle any message that doesn't match the conversation handler"""
@@ -391,9 +476,14 @@ def setup_handlers(application):
             LOGIC_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_logic_input)],
             SET_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_set_input)],
             EXERCISE_SELECTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exercise_selection)],
-            WAITING_FOR_ANSWER: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_answer)]
+            WAITING_FOR_ANSWER: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_answer)],
+            CONFIRMING_EXIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, cancel)]
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[
+            CommandHandler('cancel', confirm_exit),
+            MessageHandler(filters.COMMAND, confirm_exit)
+        ],
+        allow_reentry=True,
     )
     
     application.add_handler(conv_handler)
