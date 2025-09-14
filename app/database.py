@@ -287,9 +287,12 @@ class DatabaseManager:
                 result = await session.execute(
                     CachedResponse.__table__.select().where(CachedResponse.query_hash == query_hash)
                 )
-                cached = result.scalar()
-                return cached.response_text if cached else None
-                
+                row = result.first()
+                if row:
+                    # row is a tuple, first element is the CachedResponse object
+                    cached = row[0] if isinstance(row, tuple) else row
+                    return getattr(cached, "response_text", None)
+                return None
             except Exception as e:
                 logger.error(f"Error getting cached response: {e}")
                 return None

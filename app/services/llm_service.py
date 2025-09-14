@@ -1,89 +1,104 @@
 import logging
-import aiohttp
-import json
-import re
+import os
+import google.generativeai as genai
+from google.api_core import retry
 from app.config import config
-from time import time
 
 logger = logging.getLogger(__name__)
 
+# Model configuration
+GENERATION_CONFIG = {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 40,
+    "max_output_tokens": 1024,
+}
+
+SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+]
+
 class LLMService:
     def __init__(self):
-        # Use HuggingFace free endpoint for Gemma-2b (or other public model)
-        self.base_url = "https://api-inference.huggingface.co/models/google/gemma-2b"
-        self._session = None
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is not set")
+            
+        # Configure the Gemini API with the key
+        genai.configure(api_key=api_key)
+        
+        try:
+            self._model = genai.GenerativeModel(
+                model_name="gemini-pro",
+                generation_config=GENERATION_CONFIG,
+                safety_settings=SAFETY_SETTINGS
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini model: {e}")
+            raise
+            
         self._cache = {}
         self._cache_ttl = 60 * 5  # 5 minutes
 
     async def get_response(self, text: str) -> str:
-        """Get response from HuggingFace Inference API (Gemma-2b)."""
+        """Get response from Google Gemini (Generative AI)."""
+        import time
         try:
             prompt = self._create_prompt(text)
             key = hash(prompt)
             cached = self._cache.get(key)
             if cached:
                 ts, val = cached
-                if time() - ts < self._cache_ttl:
+                if time.time() - ts < self._cache_ttl:
                     return val
                 else:
                     del self._cache[key]
+            # Add retry logic for API calls
+            @retry.Retry(predicate=retry.if_exception_type(Exception))
+            async def generate_with_retry():
+                return await self._model.generate_content_async(prompt, stream=False)
+                
+            response = await generate_with_retry()
+            
+            if not response:
+                logger.error("Empty response from Gemini API")
+                return "متأسفانه در حال حاضر نمی‌توانم پاسخ دهم. لطفا دوباره تلاش کنید."
+                
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
+                logger.warning(f"Content blocked: {response.prompt_feedback.block_reason}")
+                return "متأسفانه نمی‌توانم به این سوال پاسخ دهم."
 
-            # Lazily create aiohttp.ClientSession when needed
-            if self._session is None:
-                timeout = aiohttp.ClientTimeout(total=15)
-                self._session = aiohttp.ClientSession(timeout=timeout)
-
-            payload = {"inputs": prompt}
-            headers = {"accept": "application/json"}
-            async with self._session.post(self.base_url, json=payload, headers=headers) as response:
-                if response.status == 200:
-                    try:
-                        result = await response.json()
-                        # HuggingFace returns a list of dicts with 'generated_text'
-                        out = result[0]["generated_text"] if isinstance(result, list) and result and "generated_text" in result[0] else str(result)
-                    except Exception:
-                        out = await response.text() or "پاسخ دریافت نشد."
-                    self._cache[key] = (time(), out)
-                    return out
-                else:
-                    logger.error(f"HF API error: {response.status}")
-                    return self.get_fallback_response(text)
+            result = response.text
+            self._cache[key] = (time.time(), result)
+            return result
         except Exception as e:
-            logger.error(f"Error calling HF API: {e}")
-            return self.get_fallback_response(text)
+            logger.error(f"Error calling Gemini API: {e}")
+            return "پاسخ دریافت نشد."
 
     async def close(self):
-        """Close the underlying aiohttp session."""
-        try:
-            if self._session is not None:
-                await self._session.close()
-        except Exception:
-            pass
+        pass  # No session to close for Gemini
 
     def _create_prompt(self, text: str) -> str:
-        """Create system prompt for mathematical logic"""
-        return f"""
-        شما یک دستیار آموزشی تخصصی در زمینه منطق ریاضی و نظریه مجموعه‌ها هستید.
-        لطفاً به زبان فارسی پاسخ دهید و بر مفاهیم زیر تمرکز کنید:
-
-        حوزه تخصصی: منطق ریاضی و نظریه مجموعه‌ها
-        زبان پاسخ: فارسی
-        سبک پاسخ: آموزشی و دقیق
-
-        موضوعات پوشش داده شده:
-        - جبر بولی و گزاره‌ها
-        - عملگرهای منطقی (∧, ∨, ¬, →, ↔)
-        - قوانین دمورگان، توزیعی، جذب
-        - جدول درستی
-        - ساده‌سازی عبارات منطقی
-        - عملیات مجموعه‌ای (∪, ∩, -, ′)
-        - روابط مجموعه‌ای (⊆, ⊂, ∈)
-        - مجموعه‌های خاص (∅, ℕ, ℤ, ℝ)
-
-        لطفاً به سوال زیر پاسخ دهید:
-
+        """Create system prompt for mathematical logic with clear instructions"""
+        return f"""You are a specialized educational assistant in mathematical logic and set theory.
+        Role: Mathematics and Logic Tutor
+        Language: Persian (Farsi)
+        Style: Educational, precise, and step-by-step explanations
+        
+        Guidelines:
+        1. Always respond in Persian (Farsi)
+        2. For mathematical expressions, use standard notation (∧, ∨, ¬, →, ∪, ∩, etc.)
+        3. If solving a problem, show steps clearly
+        4. Use formal mathematical language when appropriate
+        5. Provide examples when helpful
+        
+        Question/Task:
         {text}
-        """
+        
+        Please provide a clear, educational response in Persian."""
 
     def get_fallback_response(self, text: str) -> str:
         """Get fallback response when LLM is not available"""

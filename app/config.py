@@ -10,11 +10,8 @@ class Config:
     # Telegram Bot
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
-    # Ollama (Free LLM)
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2")
-    ollama_max_tokens: int = int(os.getenv("OLLAMA_MAX_TOKENS", "800"))
-    ollama_temperature: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+    # Google API
+    google_api_key: str = os.getenv("GOOGLE_API_KEY", "")
     
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./logic_bot.db")
@@ -36,10 +33,11 @@ class Config:
         """Validate configuration"""
         if not self.telegram_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
+            
+        if not self.google_api_key:
+            raise ValueError("GOOGLE_API_KEY is required")
         
-        # Ollama is optional - will use fallback responses if not available
-        if not self.ollama_base_url:
-            print("Warning: OLLAMA_BASE_URL not set. Some features will be limited.")
+        # Ollama removed
         
         # Validate database URL format
         if self.database_url.startswith("postgresql://"):

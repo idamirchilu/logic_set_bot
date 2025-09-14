@@ -97,53 +97,30 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Define menu options and their handlers
     menu_options = {
-        '🧠 کمک در منطق': {
-            'message': "لطفاً عبارت منطقی یا سوال خود را وارد کنید.\n\n"
-                      "مثال‌ها:\n"
-                      "• ساده کن (p ∧ q) ∨ (p ∧ ¬q)\n"
-                      "• جدول درستی برای p → q ایجاد کن\n"
-                      "• آیا (p ∨ q) ∧ ¬p معادل q است؟\n\n"
-                      "💡 راهنمایی: می‌توانید از علائم ∧ (and)، ∨ (or)، ¬ (not)، → (implies) استفاده کنید.",
+        '🧠 منطق': {
+            'message': "لطفاً عبارت منطقی یا سوال خود را وارد کنید.\n\nمثال‌ها:\n• ساده کن (p ∧ q) ∨ (p ∧ ¬q)\n• جدول درستی برای p → q\n• آیا (p ∨ q) ∧ ¬p معادل q است؟\n\n💡 راهنمایی: می‌توانید از علائم ∧ (and)، ∨ (or)، ¬ (not)، → (implies) استفاده کنید.",
             'next_state': LOGIC_INPUT,
             'help_tip': "برای خروج از این بخش، روی دکمه 'بازگشت به منو' کلیک کنید."
         },
-        '📚 کمک در نظریه مجموعه‌ها': {
-            'message': "لطفاً عبارت نظریه مجموعه‌ها یا سوال خود را وارد کنید.\n\n"
-                      "مثال‌ها:\n"
-                      "• محاسبه کن A ∪ B که A = {1,2,3}, B = {3,4,5}\n"
-                      "• آیا A زیرمجموعه B است؟\n"
-                      "• مجموعه توانی {1,2} چیست؟",
+        '📚 مجموعه‌ها': {
+            'message': "لطفاً عبارت نظریه مجموعه‌ها یا سوال خود را وارد کنید.\n\nمثال‌ها:\n• محاسبه کن A ∪ B که A = {1,2,3}, B = {3,4,5}\n• آیا A زیرمجموعه B است؟\n• مجموعه توانی {1,2} چیست؟",
             'next_state': SET_INPUT,
             'help_tip': "برای نمایش مجموعه‌ها از کاراکترهای {} استفاده کنید."
         },
-        '📝 ایجاد تمرین': {
+        '📝 تمرین جدید': {
             'handler': generate_exercise_menu,
             'next_state': EXERCISE_SELECTION
         },
-        '📊 پیشرفت من': {
+        '📊 پیشرفت': {
             'handler': lambda u, c: show_progress(u, u.effective_user.id),
             'next_state': MAIN_MENU
         },
-        'ℹ️ درباره بات': {
-            'message': "🤖 ربات منطق و نظریه مجموعه‌ها\n\n"
-                      "این دستیار هوشمند به دانشجویان در یادگیری و تمرین کمک می‌کند:\n"
-                      "• منطق گزاره‌ای\n"
-                      "• جبر بولی\n"
-                      "• عملیات نظریه مجموعه‌ها\n"
-                      "• استدلال ریاضی\n\n"
-                      "ساخته شده با پایتون، SymPy و Ollama",
+        'ℹ️ درباره ربات': {
+            'message': "🤖 ربات منطق و مجموعه‌ها\n\nاین دستیار هوشمند به دانشجویان در یادگیری و تمرین کمک می‌کند:\n• منطق گزاره‌ای\n• جبر بولی\n• عملیات مجموعه‌ها\n• استدلال ریاضی\n\nساخته شده با پایتون، SymPy و Hugging Face LLM.",
             'next_state': MAIN_MENU
         },
         '❓ راهنما': {
-            'message': "💡 نحوه استفاده از ربات:\n\n"
-                      "1. از منو برای انتخاب دسته مورد نظر استفاده کنید\n"
-                      "2. سوال یا عبارت خود را تایپ کنید\n"
-                      "3. کمک و توضیحات فوری دریافت کنید\n\n"
-                      "همچنین می‌توانید مستقیماً تایپ کنید:\n"
-                      "• 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'\n"
-                      "• 'محاسبه کن A ∪ B که A={1,2}, B={2,3}'\n"
-                      "• 'ایجاد تمرین منطق'\n"
-                      "• 'قوانین دمورگان را توضیح بده'",
+            'message': "💡 نحوه استفاده از ربات:\n\n1. از منو برای انتخاب دسته مورد نظر استفاده کنید\n2. سوال یا عبارت خود را تایپ کنید\n3. کمک و توضیحات فوری دریافت کنید\n\nهمچنین می‌توانید مستقیماً تایپ کنید:\n• 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'\n• 'محاسبه کن A ∪ B که A={1,2}, B={2,3}'\n• 'ایجاد تمرین منطق'\n• 'قوانین دمورگان را توضیح بده'",
             'next_state': MAIN_MENU
         }
     }
@@ -274,31 +251,15 @@ async def handle_logic_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
 
+    # Always send user prompt to Hugging Face LLM
     try:
-        # Offload parsing and simplification to thread pool
-        expr, variables = await asyncio.to_thread(parser.parse_logic_expression, user_text)
-        simplified = await asyncio.to_thread(parser.simplify_logic, expr)
-
-        response = f"عبارت ساده شده: {simplified}"
-        # Delete loading message
+        response = await llm_service.get_response(user_text)
         await loading_message.delete()
         await update.message.reply_text(response)
-
-        # Send as image if it's a complex expression (render in thread)
-        from sympy import latex
-        img_buffer = await asyncio.to_thread(latex_to_image, latex(simplified))
-        if img_buffer:
-            await update.message.reply_photo(photo=img_buffer, caption="نمایش فرمول")
-
-    except ValueError as e:
-        # If parsing fails, use Ollama for help
-        try:
-            response = await llm_service.get_response(user_text)
-            await update.message.reply_text(response)
-        except Exception as e:
-            logger.error(f"Error getting Ollama response: {e}")
-            await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً عبارت را به صورت واضح‌تر وارد کنید.")
-
+    except Exception as e:
+        logger.error(f"Error getting LLM response: {e}")
+        await loading_message.delete()
+        await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً دوباره تلاش کنید.")
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
     return MAIN_MENU
 
@@ -320,23 +281,15 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
 
+    # Always send user prompt to Hugging Face LLM
     try:
-        # Offload parsing to thread because it may use eval and be CPU-bound
-        result = await asyncio.to_thread(parser.parse_set_expression, user_text)
-        response = f"نتیجه: {result}"
-        # Delete loading message
+        response = await llm_service.get_response(user_text)
         await loading_message.delete()
         await update.message.reply_text(response)
-
-    except ValueError as e:
-        # If parsing fails, use Ollama for help
-        try:
-            response = await llm_service.get_response(user_text)
-            await update.message.reply_text(response)
-        except Exception as e:
-            logger.error(f"Error getting Ollama response: {e}")
-            await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً عبارت را به صورت واضح‌تر وارد کنید.")
-
+    except Exception as e:
+        logger.error(f"Error getting LLM response: {e}")
+        await loading_message.delete()
+        await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً دوباره تلاش کنید.")
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
     return MAIN_MENU
 
@@ -382,7 +335,7 @@ async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text=None):
-    """Handle general questions using Ollama"""
+    """Handle general questions using Hugging Face LLM"""
     if text is None:
         text = update.message.text
 
@@ -399,18 +352,16 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش سوال شما... ⏳")
 
-    # Use Ollama for all general questions
-    response = await llm_service.get_response(text)
-    # Delete loading message
-    await loading_message.delete()
-
-    # Cache the response
+    # Always send user prompt to Hugging Face LLM
     try:
+        response = await llm_service.get_response(text)
+        await loading_message.delete()
         await db_manager.cache_response(query_hash, response)
+        await update.message.reply_text(response)
     except Exception as e:
-        logger.error(f"Error caching response: {e}")
-
-    await update.message.reply_text(response)
+        logger.error(f"Error getting LLM response: {e}")
+        await loading_message.delete()
+        await update.message.reply_text("متأسفم، در پردازش سوال مشکل پیش آمد. لطفاً دوباره تلاش کنید.")
     return MAIN_MENU
 
 async def show_progress(update: Update, user_id: int):
