@@ -23,14 +23,30 @@ class DatabaseManager:
         
         logger.info(f"Using database URL: {self.database_url}")
         
-        # Create async engine
-        self.engine = create_async_engine(
-            self.database_url,
-            echo=config.debug,
-            pool_size=20,
-            max_overflow=10,
-            future=True
-        )
+        # Create async engine with SQLite-optimized settings
+        engine_kwargs = {
+            "echo": config.debug,
+            "future": True
+        }
+        
+        # SQLite-specific optimizations
+        if "sqlite" in self.database_url:
+            engine_kwargs.update({
+                "pool_size": 1,  # SQLite doesn't benefit from connection pooling
+                "max_overflow": 0,  # No overflow for SQLite
+                "connect_args": {
+                    "check_same_thread": False,  # Allow async operations
+                    "timeout": 30  # Connection timeout
+                }
+            })
+        else:
+            # PostgreSQL settings (if needed)
+            engine_kwargs.update({
+                "pool_size": 20,
+                "max_overflow": 10
+            })
+        
+        self.engine = create_async_engine(self.database_url, **engine_kwargs)
         
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False, future=True

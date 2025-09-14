@@ -411,12 +411,8 @@ class LogicSetBot:
         elif intent == "general_help":
             response = self.get_help_response()
         else:
-            # For other intents or unknown, use OpenAI if available, otherwise use internal response
-            from config import OPENAI_API_KEY
-            if OPENAI_API_KEY and OPENAI_API_KEY != "your_openai_api_key_here":
-                response = await self.get_openai_response(text)
-            else:
-                response = self.get_internal_response(text)
+            # For other intents or unknown, use internal response
+            response = self.get_internal_response(text)
 
         # Cache the response
         cache_response(self.db_manager, query_hash, response)
@@ -424,37 +420,9 @@ class LogicSetBot:
         await update.message.reply_text(response)
         return MAIN_MENU
 
-    async def get_openai_response(self, text):
-        """Get response from OpenAI API"""
-        try:
-            import openai
-            from config import OPENAI_API_KEY
-
-            openai.api_key = OPENAI_API_KEY
-
-            # Create a system prompt in Farsi
-            system_prompt = """
-            شما یک دستیار آموزشی تخصصی در زمینه منطق و نظریه مجموعه‌ها هستید.
-            به سوالات به زبان فارسی پاسخ دهید و مفاهیم را به صورت آموزشی توضیح دهید.
-            پاسخ‌های شما باید دقیق، مختصر و مفید باشد.
-            """
-
-            completion = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text}
-                ]
-            )
-
-            return completion.choices[0].message["content"]
-
-        except Exception as e:
-            logger.error(f"Error calling OpenAI: {e}")
-            return self.get_internal_response(text)
 
     def get_internal_response(self, text):
-        """Get internal response when OpenAI is not available"""
+        """Get internal response when LLM is not available"""
         # Use NLP to extract intent for more specific responses
         intent = self.nlp_processor.extract_intent(text)
 
@@ -486,7 +454,7 @@ class LogicSetBot:
 
     async def explain_concept(self, concept_query):
         """Explain a concept using available resources"""
-        # This would typically integrate with an API like OpenAI
+        # This would typically integrate with an LLM API like Ollama
         # For now, we'll use a simple lookup
 
         concept_responses = {

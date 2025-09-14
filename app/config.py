@@ -10,15 +10,15 @@ class Config:
     # Telegram Bot
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
-    # OpenAI
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
-    openai_max_tokens: int = int(os.getenv("OPENAI_MAX_TOKENS", "800"))
-    openai_temperature: float = float(os.getenv("OPENAI_TEMPERATURE", "0.3"))
+    # Ollama (Free LLM)
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2")
+    ollama_max_tokens: int = int(os.getenv("OLLAMA_MAX_TOKENS", "800"))
+    ollama_temperature: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
     
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./logic_bot.db")
-    database_driver: str = os.getenv("DATABASE_DRIVER", "asyncpg")
+    database_driver: str = os.getenv("DATABASE_DRIVER", "aiosqlite")
     
     # App Settings
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
@@ -37,8 +37,9 @@ class Config:
         if not self.telegram_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
         
-        if not self.openai_api_key:
-            print("Warning: OPENAI_API_KEY not set. Some features will be limited.")
+        # Ollama is optional - will use fallback responses if not available
+        if not self.ollama_base_url:
+            print("Warning: OLLAMA_BASE_URL not set. Some features will be limited.")
         
         # Validate database URL format
         if self.database_url.startswith("postgresql://"):
