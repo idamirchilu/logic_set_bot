@@ -9,7 +9,7 @@ from app.database import db_manager
 from app.services.parser import LogicSetParser
 from app.services.exercise_generator import ExerciseGenerator
 from app.services.scoring import ScoringSystem
-from app.services.openai_service import openai_service
+from app.services.ollama_service import ollama_service
 from app.utils import latex_to_image, hash_query, format_progress_message
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• جبر بولی\n"
             "• عملیات نظریه مجموعه‌ها\n"
             "• استدلال ریاضی\n\n"
-            "ساخته شده با پایتون، SymPy و OpenAI"
+            "ساخته شده با پایتون، SymPy و Ollama"
         )
         await update.message.reply_text(about_text)
         return MAIN_MENU
@@ -156,6 +156,9 @@ async def handle_exercise_selection(update: Update, context: ContextTypes.DEFAUL
     else:  # Random Exercise
         exercise_type = random.choice(["logic", "set_theory"])
 
+    # Send loading message
+    loading_message = await update.message.reply_text("در حال آماده‌سازی تمرین... ⏳")
+
     # Get user level for difficulty adjustment
     try:
         progress = await db_manager.get_user_progress(user_id)
@@ -166,6 +169,8 @@ async def handle_exercise_selection(update: Update, context: ContextTypes.DEFAUL
 
     # Generate exercise
     exercise = exercise_generator.generate_exercise(exercise_type, difficulty)
+    # Delete loading message
+    await loading_message.delete()
 
     # Store exercise in context for answer checking
     context.user_data['current_exercise'] = exercise
@@ -192,12 +197,17 @@ async def handle_logic_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error logging question: {e}")
 
+    # Send loading message
+    loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
+
     try:
         # Try to parse and simplify the expression
         expr, variables = parser.parse_logic_expression(user_text)
         simplified = parser.simplify_logic(expr)
 
         response = f"عبارت ساده شده: {simplified}"
+        # Delete loading message
+        await loading_message.delete()
         await update.message.reply_text(response)
 
         # Send as image if it's a complex expression
@@ -207,12 +217,12 @@ async def handle_logic_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_photo(photo=img_buffer, caption="نمایش فرمول")
 
     except ValueError as e:
-        # If parsing fails, use OpenAI for help
+        # If parsing fails, use Ollama for help
         try:
-            response = await openai_service.get_response(user_text)
+            response = await ollama_service.get_response(user_text)
             await update.message.reply_text(response)
         except Exception as e:
-            logger.error(f"Error getting OpenAI response: {e}")
+            logger.error(f"Error getting Ollama response: {e}")
             await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً عبارت را به صورت واضح‌تر وارد کنید.")
 
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
@@ -233,19 +243,24 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error logging question: {e}")
 
+    # Send loading message
+    loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
+
     try:
         # Try to parse and evaluate the expression
         result = parser.parse_set_expression(user_text)
         response = f"نتیجه: {result}"
+        # Delete loading message
+        await loading_message.delete()
         await update.message.reply_text(response)
 
     except ValueError as e:
-        # If parsing fails, use OpenAI for help
+        # If parsing fails, use Ollama for help
         try:
-            response = await openai_service.get_response(user_text)
+            response = await ollama_service.get_response(user_text)
             await update.message.reply_text(response)
         except Exception as e:
-            logger.error(f"Error getting OpenAI response: {e}")
+            logger.error(f"Error getting Ollama response: {e}")
             await update.message.reply_text("متأسفم، در پردازش عبارت مشکل پیش آمد. لطفاً عبارت را به صورت واضح‌تر وارد کنید.")
 
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
@@ -271,8 +286,8 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(response)
 
     except ValueError as e:
-        # If parsing fails, use OpenAI for help
-        response = await openai_service.get_response(user_text)
+        # If parsing fails, use Ollama for help
+        response = await ollama_service.get_response(user_text)
         await update.message.reply_text(response)
 
     await update.message.reply_text("چه کاری می‌خواهید انجام دهید؟", reply_markup=get_main_menu_keyboard())
@@ -320,7 +335,7 @@ async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text=None):
-    """Handle general questions using OpenAI"""
+    """Handle general questions using Ollama"""
     if text is None:
         text = update.message.text
 
@@ -334,8 +349,13 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text(cached_response)
         return MAIN_MENU
 
-    # Use OpenAI for all general questions
-    response = await openai_service.get_response(text)
+    # Send loading message
+    loading_message = await update.message.reply_text("در حال پردازش سوال شما... ⏳")
+
+    # Use Ollama for all general questions
+    response = await ollama_service.get_response(text)
+    # Delete loading message
+    await loading_message.delete()
 
     # Cache the response
     try:
