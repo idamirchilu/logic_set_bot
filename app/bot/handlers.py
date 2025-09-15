@@ -10,10 +10,8 @@ import asyncio
 # Additional states
 CONFIRMING_EXIT = 'CONFIRMING_EXIT'
 from app.bot.keyboards import get_main_menu_keyboard, get_back_keyboard, get_exercise_keyboard
-from app.database import db_manager
 from app.services.parser import LogicSetParser
 from app.services.exercise_generator import ExerciseGenerator
-from app.services.scoring import ScoringSystem
 from app.services.llm_service import llm_service
 from app.utils import latex_to_image, hash_query, format_progress_message
 
@@ -22,7 +20,6 @@ logger = logging.getLogger(__name__)
 # Initialize services
 parser = LogicSetParser()
 exercise_generator = ExerciseGenerator()
-scoring_system = ScoringSystem(db_manager)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the conversation and show the main menu"""
@@ -33,13 +30,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['menu_attempts'] = 0
     context.user_data['current_session'] = True
     
-    try:
-        success = await db_manager.add_user(user.id, user.username, user.first_name, user.last_name)
-        if not success:
-            logger.warning(f"Failed to add user {user.id}, but continuing...")
-    except Exception as e:
-        logger.error(f"Error adding user {user.id}: {e}")
-        # Continue anyway to not break the user experience
 
     starter_text = (
         "👋 به ربات کمک‌آموز منطق و نظریه مجموعه‌ها خوش آمدید!\n\n"
@@ -89,11 +79,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['menu_attempts'] = menu_attempts + 1
     
     # Update user interaction
-    try:
-        await db_manager.update_user_interaction(user_id)
-    except Exception as e:
-        logger.error(f"Error updating user interaction: {e}")
-        # Continue anyway to not break the user experience
 
     # Define menu options and their handlers
     menu_options = {
@@ -113,14 +98,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         },
         '📊 پیشرفت': {
             'handler': lambda u, c: show_progress(u, u.effective_user.id),
-            'next_state': MAIN_MENU
-        },
-        'ℹ️ درباره ربات': {
-            'message': "🤖 ربات منطق و مجموعه‌ها\n\nاین دستیار هوشمند به دانشجویان در یادگیری و تمرین کمک می‌کند:\n• منطق گزاره‌ای\n• جبر بولی\n• عملیات مجموعه‌ها\n• استدلال ریاضی\n\nساخته شده با پایتون، SymPy و Hugging Face LLM.",
-            'next_state': MAIN_MENU
-        },
-        '❓ راهنما': {
-            'message': "💡 نحوه استفاده از ربات:\n\n1. از منو برای انتخاب دسته مورد نظر استفاده کنید\n2. سوال یا عبارت خود را تایپ کنید\n3. کمک و توضیحات فوری دریافت کنید\n\nهمچنین می‌توانید مستقیماً تایپ کنید:\n• 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'\n• 'محاسبه کن A ∪ B که A={1,2}, B={2,3}'\n• 'ایجاد تمرین منطق'\n• 'قوانین دمورگان را توضیح بده'",
             'next_state': MAIN_MENU
         }
     }
@@ -211,12 +188,7 @@ async def handle_exercise_selection(update: Update, context: ContextTypes.DEFAUL
     loading_message = await update.message.reply_text("در حال آماده‌سازی تمرین... ⏳")
 
     # Get user level for difficulty adjustment
-    try:
-        progress = await db_manager.get_user_progress(user_id)
-        difficulty = min(3, max(1, progress["level"])) if progress else 1
-    except Exception as e:
-        logger.error(f"Error getting user progress: {e}")
-        difficulty = 1
+    difficulty = 1
 
     # Generate exercise (offload to thread)
     exercise = await asyncio.to_thread(exercise_generator.generate_exercise, exercise_type, difficulty)
@@ -243,10 +215,6 @@ async def handle_logic_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return MAIN_MENU
 
     # Log the question asynchronously (don't await)
-    try:
-        asyncio.create_task(db_manager.log_question(user_id, user_text, "logic"))
-    except Exception as e:
-        logger.error(f"Error scheduling question log: {e}")
 
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
@@ -273,10 +241,6 @@ async def handle_set_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MAIN_MENU
 
     # Log the question asynchronously
-    try:
-        asyncio.create_task(db_manager.log_question(user_id, user_text, "set_theory"))
-    except Exception as e:
-        logger.error(f"Error scheduling question log: {e}")
 
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش درخواست شما... ⏳")
@@ -311,19 +275,9 @@ async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Simple answer checking
     is_correct = user_answer.strip().lower() == exercise['answer'].strip().lower()
 
-    # Update user score
-    try:
-        points = scoring_system.calculate_points(exercise['difficulty'], is_correct, exercise['type'])
-        new_score, new_level = await db_manager.update_user_score(user_id, points, exercise['type'])
-    except Exception as e:
-        logger.error(f"Error updating score: {e}")
-        points = 0
-        new_score, new_level = 0, 1
-
     if is_correct:
         await update.message.reply_text(
-            f"✅ صحیح! شما {points} امتیاز کسب کردید.\n"
-            f"امتیاز کل شما اکنون {new_score} است (سطح {new_level})."
+            f"✅ صحیح! پاسخ شما درست بود."
         )
     else:
         await update.message.reply_text(
@@ -341,14 +295,6 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
 
     user_id = update.effective_user.id
 
-    # Check cache first
-    query_hash = hash_query(text)
-    cached_response = await db_manager.get_cached_response(query_hash)
-
-    if cached_response:
-        await update.message.reply_text(cached_response)
-        return MAIN_MENU
-
     # Send loading message
     loading_message = await update.message.reply_text("در حال پردازش سوال شما... ⏳")
 
@@ -356,7 +302,6 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
     try:
         response = await llm_service.get_response(text)
         await loading_message.delete()
-        await db_manager.cache_response(query_hash, response)
         await update.message.reply_text(response)
     except Exception as e:
         logger.error(f"Error getting LLM response: {e}")
@@ -366,22 +311,10 @@ async def handle_general_question(update: Update, context: ContextTypes.DEFAULT_
 
 async def show_progress(update: Update, user_id: int):
     """Show user progress"""
-    try:
-        progress = await db_manager.get_user_progress(user_id)
-        if progress:
-            message = format_progress_message(progress)
-            await update.message.reply_text(message)
-        else:
-            await update.message.reply_text(
-                "هنوز اطلاعات پیشرفتی موجود نیست.",
-                reply_markup=get_main_menu_keyboard()
-            )
-    except Exception as e:
-        logger.error(f"Error getting user progress: {e}")
-        await update.message.reply_text(
-            "خطا در دریافت اطلاعات پیشرفت.",
-            reply_markup=get_main_menu_keyboard()
-        )
+    await update.message.reply_text(
+        "پیشرفت شما ذخیره نمی‌شود، اما می‌توانید به تمرین ادامه دهید!",
+        reply_markup=get_main_menu_keyboard()
+    )
 
 async def confirm_exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ask for confirmation before exiting"""

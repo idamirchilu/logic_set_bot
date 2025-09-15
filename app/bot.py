@@ -16,7 +16,6 @@ from database import DatabaseManager
 from nlp_processor import NLPProcessor
 from parser import LogicSetParser
 from exercise_generator import ExerciseGenerator
-from scoring import ScoringSystem
 from utils import latex_to_image, hash_query, get_cached_response, cache_response, format_progress_message
 
 # Configure logging

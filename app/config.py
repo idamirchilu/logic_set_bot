@@ -11,7 +11,7 @@ class Config:
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
     # Google API
-    google_api_key: str = os.getenv("GOOGLE_API_KEY", "")
+    google_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./logic_bot.db")
@@ -25,20 +25,14 @@ class Config:
     cache_ttl: int = int(os.getenv("CACHE_TTL", "300"))
     cache_maxsize: int = int(os.getenv("CACHE_MAXSIZE", "100"))
     
-    # Scoring
-    points_correct_answer: int = int(os.getenv("POINTS_CORRECT_ANSWER", "10"))
-    points_per_exercise: int = int(os.getenv("POINTS_PER_EXERCISE", "5"))
     
     def validate(self) -> None:
         """Validate configuration"""
         if not self.telegram_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
-            
-        if not self.google_api_key:
-            raise ValueError("GOOGLE_API_KEY is required")
-        
+        if not os.getenv("OPENROUTER_API_KEY"):
+            raise ValueError("OPENROUTER_API_KEY is required")
         # Ollama removed
-        
         # Validate database URL format
         if self.database_url.startswith("postgresql://"):
             # Convert to asyncpg format

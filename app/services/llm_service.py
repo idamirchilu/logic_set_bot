@@ -1,109 +1,57 @@
 import logging
 import os
-import google.generativeai as genai
-from google.api_core import retry
+import asyncio
+import httpx
 from app.config import config
 
 logger = logging.getLogger(__name__)
 
-# Model configuration
-GENERATION_CONFIG = {
-    "temperature": 0.7,
-    "top_p": 0.8,
-    "top_k": 40,
-    "max_output_tokens": 1024,
-}
-
-SAFETY_SETTINGS = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-]
-
 class LLMService:
     def __init__(self):
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable is not set")
-            
-        # Configure the Gemini API with the key
-        genai.configure(api_key=api_key)
-        
-        try:
-            self._model = genai.GenerativeModel(
-                model_name="gemini-pro",
-                generation_config=GENERATION_CONFIG,
-                safety_settings=SAFETY_SETTINGS
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize Gemini model: {e}")
-            raise
-            
-        self._cache = {}
-        self._cache_ttl = 60 * 5  # 5 minutes
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+        self.api_key = api_key
+        self.model = "mistralai/mistral-7b-instruct"  # You can change to other OpenRouter models
+        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
 
     async def get_response(self, text: str) -> str:
-        """Get response from Google Gemini (Generative AI)."""
-        import time
+        """Get response from OpenRouter API via HTTP."""
+        prompt = self._create_prompt(text)
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/idamirchilu/logic_set_bot",  # required by OpenRouter
+            "X-Title": "Logic Set Bot"
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant for mathematical logic and set theory. Always respond in Persian (Farsi)."},
+                {"role": "user", "content": prompt}
+            ]
+        }
         try:
-            prompt = self._create_prompt(text)
-            key = hash(prompt)
-            cached = self._cache.get(key)
-            if cached:
-                ts, val = cached
-                if time.time() - ts < self._cache_ttl:
-                    return val
-                else:
-                    del self._cache[key]
-            # Add retry logic for API calls
-            @retry.Retry(predicate=retry.if_exception_type(Exception))
-            async def generate_with_retry():
-                return await self._model.generate_content_async(prompt, stream=False)
-                
-            response = await generate_with_retry()
-            
-            if not response:
-                logger.error("Empty response from Gemini API")
-                return "متأسفانه در حال حاضر نمی‌توانم پاسخ دهم. لطفا دوباره تلاش کنید."
-                
-            if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
-                logger.warning(f"Content blocked: {response.prompt_feedback.block_reason}")
-                return "متأسفانه نمی‌توانم به این سوال پاسخ دهم."
-
-            result = response.text
-            self._cache[key] = (time.time(), result)
-            return result
+            async with httpx.AsyncClient() as client:
+                response = await client.post(self.api_url, headers=headers, json=payload, timeout=60)
+                response.raise_for_status()
+                data = response.json()
+                result = data["choices"][0]["message"]["content"].strip()
+                return result
         except Exception as e:
-            logger.error(f"Error calling Gemini API: {e}")
+            logger.error(f"Error calling OpenRouter API: {e}")
             return "پاسخ دریافت نشد."
 
     async def close(self):
-        pass  # No session to close for Gemini
+        pass  # No session to close for OpenRouter
 
     def _create_prompt(self, text: str) -> str:
         """Create system prompt for mathematical logic with clear instructions"""
-        return f"""You are a specialized educational assistant in mathematical logic and set theory.
-        Role: Mathematics and Logic Tutor
-        Language: Persian (Farsi)
-        Style: Educational, precise, and step-by-step explanations
-        
-        Guidelines:
-        1. Always respond in Persian (Farsi)
-        2. For mathematical expressions, use standard notation (∧, ∨, ¬, →, ∪, ∩, etc.)
-        3. If solving a problem, show steps clearly
-        4. Use formal mathematical language when appropriate
-        5. Provide examples when helpful
-        
-        Question/Task:
-        {text}
-        
-        Please provide a clear, educational response in Persian."""
+        return f"""You are a specialized educational assistant in mathematical logic and set theory.\nRole: Mathematics and Logic Tutor\nLanguage: Persian (Farsi)\nStyle: Educational, precise, and step-by-step explanations\n\nGuidelines:\n1. Always respond in Persian (Farsi)\n2. For mathematical expressions, use standard notation (∧, ∨, ¬, →, ∪, ∩, etc.)\n3. If solving a problem, show steps clearly\n4. Use formal mathematical language when appropriate\n5. Provide examples when helpful\n\nQuestion/Task:\n{text}\n\nPlease provide a clear, educational response in Persian."""
 
     def get_fallback_response(self, text: str) -> str:
-        """Get fallback response when LLM is not available"""
-        # Clean the input text
-        text_lower = re.sub(r'[•·∙‣⁃]', ' ', text.lower())  # Remove bullet points
+        import re
+        text_lower = re.sub(r'[•·∙‣⁃]', ' ', text.lower())
         text_lower = re.sub(r'\s+', ' ', text_lower).strip()
         if any(word in text_lower for word in ["ساده کن", "ساده سازی", "کوچک کن"]):
             return "لطفاً عبارت منطقی را برای ساده‌سازی وارد کنید. مثال: 'ساده کن (p ∧ q) ∨ (p ∧ ¬q)'"
@@ -129,5 +77,4 @@ class LLMService:
                 "• توضیح مفاهیم پایه"
             )
 
-# Global LLM service instance
 llm_service = LLMService()

@@ -4,7 +4,6 @@ import sys
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
 
 from app.config import config
-from app.database import db_manager
 from app.bot import (
     start,
     main_menu,
@@ -38,9 +37,6 @@ async def main():
         logger.error(f"Configuration error: {e}")
         return
     
-    # Initialize database
-    await db_manager.init_db()
-    logger.info("Database initialized successfully")
     
     # Create application
     application = Application.builder().token(config.telegram_token).build()

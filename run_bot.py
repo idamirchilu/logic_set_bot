@@ -9,7 +9,6 @@ import sys
 from telegram.ext import Application
 
 from app.config import config
-from app.database import db_manager
 from app.bot.handlers import setup_handlers
 
 # Configure logging
@@ -29,7 +28,6 @@ async def async_main():
         return
     
     # Initialize database
-    await db_manager.init_db()
     logger.info("Database initialized successfully")
     
     # Create and setup application

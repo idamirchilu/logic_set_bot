@@ -11,12 +11,9 @@ __description__ = "Telegram bot for mathematical logic and set theory education"
 
 # Package-level imports for easy access
 from app.config import config
-from app.database import db_manager
-
 # Export main components for external use
 __all__ = [
     'config',
-    'db_manager',
     'main'
 ]
 
